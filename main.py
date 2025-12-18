@@ -61,6 +61,8 @@ def insert():
 @app.get("/records")
 def records():
     try:
+            ensure_table()
+
         limit = int(request.args.get("limit", 0))
         sql = "SELECT * FROM patient_records ORDER BY id DESC" + (f" LIMIT {limit}" if limit else "")
         with get_conn() as conn:
@@ -76,7 +78,7 @@ def home():
     
 # ---------- start ----------
 if __name__ == "__main__":
-    ensure_table()
 
     app.run(host="0.0.0.0", port=8080, debug=False)
+
 
