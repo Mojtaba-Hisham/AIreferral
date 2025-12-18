@@ -16,7 +16,7 @@ app = Flask(__name__)
 MODEL_PATH = "rf_model.pkl"          # sklearn pipeline (ColumnTransformer + RF)
 EXPECTED_COLS = [
     "gender", "age", "ChiefComplaint", "PainGrade",
-    "BloodPressure_high", "BloodPressure_low",
+    "BlooddpressurDiastol", "BlooddpressurSystol",
     "PulseRate", "Respiration", "O2Saturation"
 ]
 
@@ -83,6 +83,7 @@ if __name__ == "__main__":
 
 
     app.run(host="0.0.0.0", port=8080, debug=False)
+
 
 
 
