@@ -12,8 +12,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-# ---------- config ----------
-MODEL_PATH = "rf_model.pkl"          # sklearn pipeline (ColumnTransformer + RF)
+# ---------- config ---------- 
+MODEL_PATH = "rf_model.pkl"         
 EXPECTED_COLS = [
     "gender", "age", "ChiefComplaint", "PainGrade",
     "BlooddpressurDiastol", "BlooddpressurSystol",
@@ -83,6 +83,7 @@ if __name__ == "__main__":
 
 
     app.run(host="0.0.0.0", port=8080, debug=False)
+
 
 
 
