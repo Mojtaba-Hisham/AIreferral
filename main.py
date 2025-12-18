@@ -50,7 +50,7 @@ def insert():
         triage_flag = int(pipe.predict(X)[0])
 
         sql = """INSERT INTO patient_records
-                 (gender,age,ChiefComplaint,PainGrade,BloodPressure_high,BloodPressure_low,PulseRate,Respiration,O2Saturation,TriageLevel)
+                 (gender,age,ChiefComplaint,PainGrade,BlooddpressurDiastol,BlooddpressurSystol,PulseRate,Respiration,O2Saturation,TriageLevel)
                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
         with get_conn() as conn, conn.cursor() as cur:
             cur.execute(sql, payload + [triage_flag])
@@ -83,6 +83,7 @@ if __name__ == "__main__":
 
 
     app.run(host="0.0.0.0", port=8080, debug=False)
+
 
 
 
