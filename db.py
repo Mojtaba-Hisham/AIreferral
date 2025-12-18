@@ -17,7 +17,7 @@ def ensure_table():
     """Create table once at start-up if it does not exist."""
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS patient_records (
+            CREATE TABLE IF NOT EXISTS patient_record (
     id INT AUTO_INCREMENT PRIMARY KEY,
     gender VARCHAR(10),
     age INT,
@@ -32,4 +32,5 @@ def ensure_table():
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 )
         """)
+
         conn.commit()
