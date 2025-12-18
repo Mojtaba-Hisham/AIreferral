@@ -68,7 +68,7 @@ def records():
         sql = "SELECT * FROM patient_records ORDER BY id DESC" + (f" LIMIT {limit}" if limit else "")
         with get_conn() as conn:
             rows = pd.read_sql(sql, conn).to_dict(orient="records")
-        return jsonify(ct.get_feature_names_out())
+        return jsonify(rows)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
         # render
@@ -83,6 +83,7 @@ if __name__ == "__main__":
 
 
     app.run(host="0.0.0.0", port=8080, debug=False)
+
 
 
 
