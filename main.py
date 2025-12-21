@@ -1,4 +1,4 @@
-# main.py  (single-file, copy–paste–run)
+# ---------- main.py ----------
 import os
 import joblib
 from flask import Flask, request, jsonify
@@ -6,87 +6,184 @@ from dotenv import load_dotenv
 import mysql.connector
 import pandas as pd
 
-from db import ensure_table
-
+# Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
-# ---------- config ---------- 
-MODEL_PATH = "rf_model.pkl"         
-EXPECTED_COLS = [
+# ---------- Configuration ----------
+MODEL_PATH = "rf_pipeline.pkl"
+EXPECTED_FEATURES = [
     "gender", "age", "ChiefComplaint", "PainGrade",
     "BlooddpressurDiastol", "BlooddpressurSystol",
-    "PulseRate", "Respiration", "O2Saturation"
+    "PulseRate", "RespiratoryRate", "O2Saturation"
 ]
 
-# ---------- load model ----------
+# ---------- Load Model ----------
 try:
-    pipe = joblib.load("rf_model.pkl")
-    ct   = pipe.named_steps['columntransformer']
+    pref = joblib.load(MODEL_PATH)  # Full pipeline with preprocessing + classifier
 except FileNotFoundError:
     raise RuntimeError(f"Model file {MODEL_PATH} not found – place it in the project root")
+except Exception as e:
+    raise RuntimeError(f"Failed to load model: {e}")
 
-# ---------- DB helpers ----------
+# ---------- Database Configuration ----------
+DB_CFG = dict(
+    host=os.getenv('DB_HOST'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD'),
+    database=os.getenv('DB_NAME'),
+    port=int(os.getenv('DB_PORT', 3306))
+)
+
 def get_conn():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-        port=int(os.getenv('DB_PORT', 3306))
-    )
+    return mysql.connector.connect(**DB_CFG)
 
+def ensure_table():
+    """Create the aiReferral table if it does not exist."""
+    ddl = """
+    CREATE TABLE IF NOT EXISTS aiReferral (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        gender VARCHAR(10),
+        age INT,
+        ChiefComplaint VARCHAR(255),
+        PainGrade INT,
+        BlooddpressurDiastol INT,
+        BlooddpressurSystol INT,
+        PulseRate INT,
+        RespiratoryRate INT,
+        O2Saturation INT,
+        TriageLevel TINYINT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    """
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(ddl)
+        conn.commit()
 
-# ---------- routes ----------
+# ---------- Routes ----------
 @app.post("/insert")
 def insert():
+    """Insert a new patient record, run prediction, save to DB, return saved row."""
     try:
-        payload = request.get_json(force=True)
-        if not isinstance(payload, list) or len(payload) != 9:
-            return jsonify({"error": "Send 9-element list: "+", ".join(EXPECTED_COLS)}), 400
+        data = request.get_json(force=True)
 
-        X = pd.DataFrame([payload], columns=EXPECTED_COLS)
-        triage_flag = int(pipe.predict(X)[0])
+        # --- basic validation ---
+        if not all(f in data for f in EXPECTED_FEATURES):
+            missing = [f for f in EXPECTED_FEATURES if f not in data]
+            return jsonify(error=f"Missing fields: {missing}"), 400
 
-        sql = """INSERT INTO patient_records
-                 (gender,age,ChiefComplaint,PainGrade,BlooddpressurDiastol,BlooddpressurSystol,PulseRate,Respiration,O2Saturation,TriageLevel)
-                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
-        with get_conn() as conn, conn.cursor() as cur:
-            cur.execute(sql, payload + [triage_flag])
+        # --- prediction ---
+        X = pd.DataFrame([data])[EXPECTED_FEATURES]
+        pred_int = int(pref.predict(X)[0])
+
+        # --- insert ---
+        cols = EXPECTED_FEATURES + ["TriageLevel"]
+        vals = [data[f] for f in EXPECTED_FEATURES] + [pred_int]
+        placeholders = ",".join(["%s"] * len(cols))
+        sql_insert = f"""
+            INSERT INTO aiReferral ({','.join(cols)})
+            VALUES ({placeholders})
+        """
+        with get_conn() as conn, conn.cursor(dictionary=True) as cur:
+            cur.execute(sql_insert, vals)
+            new_id = cur.lastrowid                       # MySQL auto-increment id
+            # read the row we just wrote
+            cur.execute(
+                "SELECT * FROM aiReferral WHERE id = %s",
+                (new_id,)
+            )
+            saved_row = cur.fetchone()                   # dict with all columns
             conn.commit()
-            return jsonify({"id": cur.lastrowid, "triage_level": triage_flag}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-@app.get("/records")
-def records():
+        # --- send the database row back ---
+        return jsonify(saved_row), 201
+
+    except Exception as e:
+        return jsonify(error=str(e)), 400
+# @app.post("/insert")
+# def insert():
+#     """Insert a new patient record, run prediction, save to DB, return saved row."""
+#     try:
+#         data = request.get_json(force=True)
+
+#         # --- basic validation ---
+#         if not all(f in data for f in EXPECTED_FEATURES):
+#             missing = [f for f in EXPECTED_FEATURES if f not in data]
+#             return jsonify(error=f"Missing fields: {missing}"), 400
+
+#         # --- prediction ---
+#         X = pd.DataFrame([data])[EXPECTED_FEATURES]
+#         pred_int = int(pref.predict(X)[0])
+
+#         # --- insert ---
+#         cols = EXPECTED_FEATURES + ["TriageLevel"]
+#         vals = [data[f] for f in EXPECTED_FEATURES] + [pred_int]
+#         placeholders = ",".join(["%s"] * len(cols))
+#         sql_insert = f"""
+#             INSERT INTO aiReferral ({','.join(cols)})
+#             VALUES ({placeholders})
+#         """
+#         with get_conn() as conn, conn.cursor(dictionary=True) as cur:
+#             cur.execute(sql_insert, vals)
+#             new_id = cur.lastrowid                       # MySQL auto-increment id
+#             # read the row we just wrote
+#             cur.execute(
+#                 "SELECT * FROM aiReferral WHERE id = %s",
+#                 (new_id,)
+#             )
+#             saved_row = cur.fetchone()                   # dict with all columns
+#             conn.commit()
+
+#         # --- send the database row back ---
+#         return jsonify(saved_row), 201
+
+#     except Exception as e:
+#         return jsonify(error=str(e)), 400
+@app.get("/summary")
+def summary():
+    """Return all patient records and triage level stats."""
     try:
-            ensure_table()
+        with get_conn() as conn, conn.cursor(dictionary=True) as cur:
+            cur.execute("SELECT * FROM aiReferral ORDER BY id DESC")
+            records = cur.fetchall()
 
-        limit = int(request.args.get("limit", 0))
-        sql = "SELECT * FROM patient_records ORDER BY id DESC" + (f" LIMIT {limit}" if limit else "")
-        with get_conn() as conn:
-            rows = pd.read_sql(sql, conn).to_dict(orient="records")
-        return jsonify(rows)
+            cur.execute("SELECT COUNT(*) AS c FROM aiReferral WHERE TriageLevel=0")
+            count_0 = cur.fetchone()['c']
+            cur.execute("SELECT COUNT(*) AS c FROM aiReferral WHERE TriageLevel=1")
+            count_1 = cur.fetchone()['c']
+
+            return jsonify(
+                total_records=len(records),
+                total_non_urgent=count_0,
+                total_urgent=count_1,
+                records=records
+            )
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-        # render
-    
-@app.route("/")
-def home():
-    return "Hello from Render!"
-    
-# ---------- start ----------
+        return jsonify(error=str(e)), 500
+        
+@app.get("/record/<int:record_id>")
+def get_record_by_id(record_id):
+    """Return one patient record by primary-key id."""
+    try:
+        with get_conn() as conn, conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT * FROM aiReferral WHERE id = %s",
+                (record_id,)
+            )
+            row = cur.fetchone()
+
+        if row is None:
+            return jsonify(error="Record not found"), 404
+
+        return jsonify(row), 200
+
+    except Error as e:
+        return jsonify(error=str(e)), 500
+# ---------- Start Server ----------
 if __name__ == "__main__":
-        ensure_table()
-
-
+    ensure_table()
     app.run(host="0.0.0.0", port=8080, debug=False)
-
-
-
-
 
 
 
